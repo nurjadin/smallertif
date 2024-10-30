@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+
+import argparse
+import os
+import sys
+import subprocess
+import shlex
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(
+        description="Downsample a raster to 8-bit color depth and generate an 8-bit TIFF or JPEG with overviews using GDAL."
+    )
+    parser.add_argument(
+        "-f", "--file", required=True, help="Path to the input source raster file."
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        required=True,
+        help="Path to the output raster file (TIFF with JPEG compression or standard TIFF).",
+    )
+    parser.add_argument(
+        "-t",
+        "--type",
+        choices=["TIFF", "JPEG"],
+        default="TIFF",
+        help='Output file type: "TIFF" (default) or "JPEG" (creates a TIFF with JPEG compression).',
+    )
+    parser.add_argument(
+        "-ovl",
+        "--overviews",
+        default="2 4 8 16 32",
+        help='Overview levels for gdaladdo (default: "2 4 8 16 32"). Provide as space-separated values, e.g., "2 4 8".',
+    )
+    return parser.parse_args()
+
+
+def validate_arguments(args):
+    # Check if source file exists
+    if not os.path.isfile(args.file):
+        print(f"Error: The source file '{args.file}' does not exist.")
+        sys.exit(1)
+
+    # Check if output directory exists or can be created
+    output_dir = os.path.dirname(os.path.abspath(args.output))
+    if output_dir and not os.path.exists(output_dir):
+        try:
+            os.makedirs(output_dir)
+            print(f"Created output directory: {output_dir}")
+        except Exception as e:
+            print(f"Error: Cannot create output directory '{output_dir}'. {e}")
+            sys.exit(1)
+
+    # Validate overview levels
+    try:
+        ovl_levels = [int(level) for level in args.overviews.split()]
+        if not all(level > 1 for level in ovl_levels):
+            raise ValueError
+    except ValueError:
+        print(
+            "Error: Overview levels must be integers greater than 1, separated by spaces."
+        )
+        sys.exit(1)
+
+    return ovl_levels
+
+
+def run_subprocess(command, description):
+    """
+    Runs a subprocess command and handles errors.
+    """
+    print(f"Running: {description}")
+    print(f"Command: {command}\n")
+    try:
+        subprocess.run(shlex.split(command), check=True)
+        print(f"Completed: {description}\n")
+    except subprocess.CalledProcessError as e:
+        print(f"Error during {description}: {e}")
+        sys.exit(1)
+
+
+def downsample_to_8bit(src_path, dst_path, output_type):
+    """
+    Downsamples the source raster to 8-bit color depth and saves as a TIFF or JPEG-compressed TIFF.
+    Handles large images by using tiling and compression.
+    """
+    # Construct gdal_translate command based on output type
+    translate_command = build_gdal_translate_command(src_path, dst_path, output_type)
+    run_subprocess(translate_command, "Downsampling to 8-bit with gdal_translate")
+
+
+def build_gdal_translate_command(source, destination, output_type):
+    """
+    Constructs the gdal_translate command based on the output type.
+    - For JPEG output type, create a TIFF with JPEG compression.
+    - For TIFF output type, create a standard TIFF with LZW compression.
+    """
+    if output_type.upper() == "JPEG":
+        # TIFF with JPEG compression (interpreting `-t JPEG` to mean TIFF with JPEG compression)
+        return (
+            f"gdal_translate -ot Byte -of GTiff "
+            f"-co COMPRESS=JPEG -co TILED=YES -co BIGTIFF=YES "
+            f'"{source}" "{destination}"'
+        )
+    else:
+        # Standard TIFF with LZW compression
+        return (
+            f"gdal_translate -ot Byte -of GTiff "
+            f"-co COMPRESS=LZW -co TILED=YES -co BIGTIFF=YES "
+            f'"{source}" "{destination}"'
+        )
+
+
+def add_overviews(dst_path, overview_levels):
+    """
+    Adds overviews to the raster using gdaladdo.
+    """
+    addo_command = (
+        f'gdaladdo -r average "{dst_path}" {" ".join(map(str, overview_levels))}'
+    )
+    run_subprocess(addo_command, "Adding overviews with gdaladdo")
+
+
+def main():
+    args = parse_arguments()
+    overview_levels = validate_arguments(args)
+
+    src_path = os.path.abspath(args.file)
+    dst_path = os.path.abspath(args.output)
+    output_type = args.type.upper()
+
+    print("Starting the downsampling process...\n")
+    print(f"Source File: {src_path}")
+    print(f"Output File: {dst_path}")
+    print(
+        f"Output Type: {'TIFF with JPEG compression' if output_type == 'JPEG' else 'Standard TIFF'}"
+    )
+    print(f"Overview Levels: {overview_levels}\n")
+
+    downsample_to_8bit(src_path, dst_path, output_type)
+    add_overviews(dst_path, overview_levels)
+
+    print("Process completed successfully.")
+
+
+if __name__ == "__main__":
+    main()
