@@ -28,7 +28,7 @@ def parse_arguments():
         help='Output file type: "TIFF" (default) or "JPEG" (creates a TIFF with JPEG compression).',
     )
     parser.add_argument(
-        "-ovl",
+        "-ov",
         "--overviews",
         default="2 4 8 16 32",
         help='Overview levels for gdaladdo (default: "2 4 8 16 32"). Provide as space-separated values, e.g., "2 4 8".',
@@ -54,8 +54,8 @@ def validate_arguments(args):
 
     # Validate overview levels
     try:
-        ovl_levels = [int(level) for level in args.overviews.split()]
-        if not all(level > 1 for level in ovl_levels):
+        ov_levels = [int(level) for level in args.overviews.split()]
+        if not all(level > 1 for level in ov_levels):
             raise ValueError
     except ValueError:
         print(
@@ -63,7 +63,7 @@ def validate_arguments(args):
         )
         sys.exit(1)
 
-    return ovl_levels
+    return ov_levels
 
 
 def run_subprocess(command, description):
